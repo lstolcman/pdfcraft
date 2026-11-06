@@ -99,6 +99,13 @@ pub enum QuickTool {
 /// read from when the file's turn to be inserted comes (so a long drop holds one file at a time).
 pub(crate) type GridFile = (String, Result<Vec<u8>, std::path::PathBuf>);
 
+/// A save that could not be written: the document it belonged to and the message to show.
+#[derive(Clone, Debug)]
+pub(crate) struct SaveFailure {
+    pub doc: pdfcraft_engine::DocId,
+    pub message: String,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Dialog {
     WordCount,
@@ -142,6 +149,8 @@ pub enum Dialog {
     Revert,
     /// Save over a file that changed on disk since the document came from it (#2166).
     OverwriteChanged,
+    /// A save that could not be written, with the reason and a way to save elsewhere (#4463).
+    SaveFailed,
     /// Link Properties.
     LinkProps,
     /// Organize ▸ Extract (options), Rotate Pages.

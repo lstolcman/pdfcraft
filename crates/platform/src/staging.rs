@@ -113,6 +113,30 @@ fn kept_permissions(file: &std::fs::File, keep: &std::fs::Metadata) -> std::fs::
     mode
 }
 
+/// Explain a write that a folder that exists refused, keeping the operating system's error.
+///
+/// On Windows the common cause is another program refusing the write, above all Controlled folder
+/// access (ransomware protection). That protection covers Documents, Desktop, Pictures, Videos,
+/// Music and Favorites by default, and its refusal can surface as the bare "file not found"
+/// (`os error 2`) that issue #4463 mistook for a problem with spaces in the path. A missing folder
+/// or a full disk keeps its own message: only a refusal inside an existing folder gets the hint.
+fn explain_unwritable_folder(error: std::io::Error, dir: &Path) -> std::io::Error {
+    #[cfg(windows)]
+    if dir.is_dir() && matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied) {
+        return std::io::Error::new(
+            error.kind(),
+            format!(
+                "{error}; this folder exists but Windows refused the new file. Controlled folder access \
+                 (ransomware protection) or antivirus may be blocking PdfCraft: allow PdfCraft in Windows \
+                 Security under Virus & threat protection > Ransomware protection, or save to another folder"
+            ),
+        );
+    }
+    #[cfg(not(windows))]
+    let _ = dir;
+    error
+}
+
 /// Unpredictable staging-name suffixes, so a name can't be planted in advance. Each is the
 /// standard library's keyed hash of a counter (`RandomState::hash_one`, currently SipHash-1-3),
 /// keyed from the operating system's random source. That is all a staging name needs, but it is
@@ -171,7 +195,7 @@ pub fn write_atomically_with(
     // A saved file is the same document: it keeps its creation date (#2658).
     #[cfg(any(windows, target_os = "macos"))]
     let created = std::fs::metadata(path).ok().filter(|m| m.is_file()).and_then(|m| m.created().ok());
-    let (tmp, file) = create_staging_as(dir, name, form, suffixes, keep.as_ref())?;
+    let (tmp, file) = create_staging_as(dir, name, form, suffixes, keep.as_ref()).map_err(|e| explain_unwritable_folder(e, dir))?;
     let result = (|| {
         // Closed at the end of the block, before the rename (required on Windows).
         {

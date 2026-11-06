@@ -23,6 +23,7 @@ fn save_dialog_folder_handles_unc_paths() {
     assert_eq!(save_dialog_folder(Some(r"\\nas\projets")), None);
     assert_eq!(save_dialog_folder(Some(r"C:\Users\a\f.pdf")), Some(PathBuf::from(r"C:\Users\a")));
 }
+
 use pdfcraft_platform::staging::{STAGING_ATTEMPTS, staging_suffixes};
 use std::path::{Path, PathBuf};
 
@@ -389,5 +390,27 @@ fn save_asks_where_to_keep_an_email_attachment_and_leaves_the_temporary_copy_alo
     app.pick_override = None;
     assert!(app.apply_edit(pdfcraft_engine::Edit::RotatePages { pages: vec![0], degrees: 90 }));
     assert!(app.save_active(SaveTarget::InPlace));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// #4463: a save that Windows refuses opens a dialog in front of the user, with the reason, not
+/// a toast that disappears at the bottom of the window.
+#[test]
+fn a_failed_save_opens_a_dialog_with_the_reason() {
+    let dir = std::env::temp_dir().join(format!("pdfcraft-save-failed-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app = crate::PdfCraftApp::new();
+    app.set_option("language", "en").unwrap();
+    app.open_bytes("a.pdf", None, one_page_pdf()).unwrap();
+    assert!(app.apply_edit(pdfcraft_engine::Edit::RotatePages { pages: vec![0], degrees: 90 }));
+    app.save_override = Some(dir.join("missing").join("out.pdf").to_string_lossy().into_owned());
+
+    assert!(!app.save_active(SaveTarget::InPlace));
+    assert_eq!(app.dialog, Some(crate::Dialog::SaveFailed), "the failure is in front of the user");
+    let message = app.save_failure.as_ref().expect("the failure is kept for the dialog").message.clone();
+    assert!(message.contains("Couldn't save"), "{message}");
+    assert!(message.contains("out.pdf"), "{message}");
+    assert!(app.session.get(app.views[0].id).unwrap().dirty, "the document stays unsaved");
     let _ = std::fs::remove_dir_all(&dir);
 }

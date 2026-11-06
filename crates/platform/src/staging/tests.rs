@@ -448,3 +448,37 @@ fn a_replaced_link_keeps_its_own_attributes_not_its_targets() {
     assert_ne!(std::fs::metadata(&referent).unwrap().file_attributes() & HIDDEN, 0, "and still hidden");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// #4463: a save that fails with a bare "file not found" in a folder that exists is usually
+/// Windows protection (Controlled folder access) refusing the new file, not a path problem. Keep
+/// the operating system's error and add what the user can do about it.
+#[cfg(windows)]
+#[test]
+fn a_write_refused_in_an_existing_folder_names_controlled_folder_access() {
+    let dir = test_dir("blocked");
+    for kind in [std::io::ErrorKind::NotFound, std::io::ErrorKind::PermissionDenied] {
+        let e = explain_unwritable_folder(std::io::Error::from(kind), &dir);
+        assert_eq!(e.kind(), kind);
+        assert!(e.to_string().contains("Controlled folder access"), "{e}");
+        assert!(e.to_string().contains("Ransomware protection"), "says where to allow the app: {e}");
+    }
+    // A folder that is not there is a path problem, and a full disk is a disk problem: neither is
+    // blamed on Windows protection.
+    let missing = dir.join("missing");
+    let e = explain_unwritable_folder(std::io::Error::from(std::io::ErrorKind::NotFound), &missing);
+    assert!(!e.to_string().contains("Controlled folder access"), "a missing folder keeps its message: {e}");
+    let e = explain_unwritable_folder(std::io::Error::from(std::io::ErrorKind::StorageFull), &dir);
+    assert!(!e.to_string().contains("Controlled folder access"), "a full disk keeps its message: {e}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The hint is added by the writer itself, so the app, the tools and the CLI all get it.
+#[test]
+fn a_missing_output_folder_is_reported_without_the_protection_hint() {
+    let dir = test_dir("no-hint");
+    let target = dir.join("missing").join("out.pdf");
+    let e = write_atomically(&target, b"X", StagingName::SuffixThenTag).unwrap_err();
+    assert_eq!(e.kind(), std::io::ErrorKind::NotFound);
+    assert!(!e.to_string().contains("Controlled folder access"), "{e}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

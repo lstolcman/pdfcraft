@@ -186,7 +186,11 @@ impl PdfCraftApp {
             }
         };
         if let Err(e) = write_atomically(dest, &bytes) {
-            self.notify_fmt("Couldn't save {name}: {e}", &[("name", dest), ("e", &e.to_string())]);
+            // A failed save is not a toast that scrolls away at the bottom: the user has to see
+            // why and be able to save somewhere else (#4463).
+            let message = crate::i18n::fmt(tl!("Couldn't save {name}: {e}"), &[("name", dest), ("e", &e.to_string())]);
+            self.save_failure = Some(crate::state::SaveFailure { doc: id, message });
+            self.dialog = Some(crate::Dialog::SaveFailed);
             return false;
         }
         // Our own write is not a change on disk to reload (#431).

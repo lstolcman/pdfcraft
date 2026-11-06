@@ -476,6 +476,10 @@ pub struct PdfCraftApp {
     /// A save waiting behind [`Dialog::OverwriteChanged`] (the web build has no files to check).
     #[cfg(not(target_arch = "wasm32"))]
     pub pending_overwrite: Option<editing::PendingOverwrite>,
+    /// A save that could not be written, shown in [`Dialog::SaveFailed`] with a way to save
+    /// somewhere else (#4463).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) save_failure: Option<state::SaveFailure>,
     /// Save to this path instead of asking (tests and automation).
     pub save_override: Option<String>,
     /// Document Properties ▸ Description fields being edited: (document, Title/Author/Subject/Keywords).

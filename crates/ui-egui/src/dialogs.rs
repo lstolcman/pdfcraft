@@ -54,6 +54,7 @@ struct Pending {
     revert_now: bool,
     overwrite_now: bool,
     overwrite_elsewhere: bool,
+    save_failed_save_as: bool,
     summarize_now: bool,
     optimize_now: bool,
     duplicate_now: Option<Edit>,
@@ -288,6 +289,11 @@ fn dialog_body(ui: &mut egui::Ui, app: &mut PdfCraftApp, dialog: Dialog, req: &m
         }
         Dialog::OverwriteChanged => {
             if !dialog_overwrite_changed(ui, app, req) {
+                return false;
+            }
+        }
+        Dialog::SaveFailed => {
+            if !dialog_save_failed(ui, app, req) {
                 return false;
             }
         }
@@ -1309,6 +1315,33 @@ fn dialog_overwrite_changed(ui: &mut egui::Ui, app: &mut PdfCraftApp, req: &mut 
     false
 }
 
+/// `Dialog::SaveFailed` content. Returns `false` when it has its own buttons and no footer is
+/// wanted. The failure stays in `app.save_failure`; Save as… retries to another path.
+fn dialog_save_failed(ui: &mut egui::Ui, app: &mut PdfCraftApp, req: &mut Pending) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    let failure = app.save_failure.as_ref().map(|f| (f.doc, f.message.clone()));
+    #[cfg(target_arch = "wasm32")]
+    let failure: Option<(pdfcraft_engine::DocId, String)> = None;
+    let Some((doc, message)) = failure else {
+        req.close = true;
+        return false;
+    };
+    ui.label(egui::RichText::new(tl!("Couldn't save the file")).font(theme::semibold(18.0)));
+    ui.add_space(8.0);
+    ui.label(message);
+    ui.add_space(12.0);
+    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        if app.views.iter().any(|v| v.id == doc) && widgets::pill_button(ui, tl!("Save as…"), true).clicked() {
+            req.save_failed_save_as = true;
+            req.close = true;
+        }
+        if widgets::pill_button(ui, tl!("Close"), false).clicked() {
+            req.close = true;
+        }
+    });
+    false
+}
+
 /// `Dialog::Print` content. Returns `false` when it has its own buttons and no footer is wanted.
 fn dialog_print(ui: &mut egui::Ui, app: &mut PdfCraftApp, req: &mut Pending) -> bool {
     let t = Tokens::get(ui.ctx());
@@ -1784,13 +1817,24 @@ fn finish_requests(app: &mut PdfCraftApp, dialog: Dialog, modal_closed: bool, re
         if req.overwrite_elsewhere {
             app.save_changed_file_elsewhere();
         }
+        if req.save_failed_save_as
+            && let Some(failure) = app.save_failure.take()
+            && let Some(index) = app.views.iter().position(|v| v.id == failure.doc)
+        {
+            app.dialog = None;
+            app.save_then(index, crate::editing::SaveTarget::As, |_| {});
+        }
     }
     #[cfg(target_arch = "wasm32")]
-    let _ = (req.overwrite_now, req.overwrite_elsewhere);
+    let _ = (req.overwrite_now, req.overwrite_elsewhere, req.save_failed_save_as);
     // Cancelled or dismissed: the save is dropped.
     #[cfg(not(target_arch = "wasm32"))]
     if dialog == Dialog::OverwriteChanged && (modal_closed || req.close) {
         app.pending_overwrite = None;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if dialog == Dialog::SaveFailed && (modal_closed || req.close) {
+        app.save_failure = None;
     }
 }
 

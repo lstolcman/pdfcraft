@@ -181,6 +181,7 @@ impl PdfCraftApp {
             save_prompt_attention: false,
             #[cfg(not(target_arch = "wasm32"))]
             pending_overwrite: None,
+            save_failure: None,
             save_override: None,
             props_draft: None,
             view_draft: None,
